@@ -278,65 +278,78 @@ public class AppController implements Initializable {
     }
 
     void initializeView() {
-        setPlatformApplicationMenu();
-
+        setDragAndDropListeners();
+        setupTabSelectionListener();
+        setupWindowCloseHandler();
+        setupBitcoinUnit();
+        setupUnitFormat();
+        setupTheme();
+        bindProperties();
+        setupRestartMenu();
+        setupActionBindings();
+        configureWalletOptions();
+        configureServerOptions();
+        setNetworkLabel();
+    }
+    
+    private void setDragAndDropListeners() {
         rootStack.setOnDragOver(event -> {
-            if(event.getGestureSource() != rootStack && event.getDragboard().hasFiles()) {
+            if (event.getGestureSource() != rootStack && event.getDragboard().hasFiles()) {
                 event.acceptTransferModes(TransferMode.LINK);
             }
             event.consume();
         });
-
+    
         rootStack.setOnDragDropped(event -> {
             Dragboard db = event.getDragboard();
             boolean success = false;
-            if(db.hasFiles()) {
+            if (db.hasFiles()) {
                 openFiles(db.getFiles());
                 success = true;
             }
             event.setDropCompleted(success);
             event.consume();
         });
-
-        rootStack.setOnDragEntered(event -> {
-            rootStack.getStyleClass().add(DRAG_OVER_CLASS);
-        });
-
-        rootStack.setOnDragExited(event -> {
-            rootStack.getStyleClass().removeAll(DRAG_OVER_CLASS);
-        });
-
+    
+        rootStack.setOnDragEntered(event -> rootStack.getStyleClass().add(DRAG_OVER_CLASS));
+        rootStack.setOnDragExited(event -> rootStack.getStyleClass().removeAll(DRAG_OVER_CLASS));
+    }
+    
+    private void setupTabSelectionListener() {
         tabs.getSelectionModel().selectedItemProperty().addListener((observable, previouslySelectedTab, selectedTab) -> {
-            if(tabs.getTabs().contains(previouslySelectedTab)) {
+            if (tabs.getTabs().contains(previouslySelectedTab)) {
                 this.previouslySelectedTab = previouslySelectedTab;
             }
-            tabs.getTabs().forEach(tab -> ((Label)tab.getGraphic()).getGraphic().setOpacity(TAB_LABEL_GRAPHIC_OPACITY_INACTIVE));
-            if(selectedTab != null) {
-                Label tabLabel = (Label)selectedTab.getGraphic();
+            tabs.getTabs().forEach(tab -> ((Label) tab.getGraphic()).getGraphic().setOpacity(TAB_LABEL_GRAPHIC_OPACITY_INACTIVE));
+            if (selectedTab != null) {
+                Label tabLabel = (Label) selectedTab.getGraphic();
                 tabLabel.getGraphic().setOpacity(TAB_LABEL_GRAPHIC_OPACITY_ACTIVE);
-
-                TabData tabData = (TabData)selectedTab.getUserData();
-                if(tabData.getType() == TabData.TabType.TRANSACTION) {
-                    EventManager.get().post(new TransactionTabSelectedEvent(selectedTab));
-                } else if(tabData.getType() == TabData.TabType.WALLET) {
-                    EventManager.get().post(new WalletTabSelectedEvent(selectedTab));
-                }
+                handleTabSelection(selectedTab);
             }
         });
-
-        //Draggle tabs introduce unwanted movement when selecting between them
-        //tabs.setTabDragPolicy(TabPane.TabDragPolicy.REORDER);
+    
         tabs.getTabs().addListener(tabsChangeListener);
-
+    }
+    
+    private void handleTabSelection(Tab selectedTab) {
+        TabData tabData = (TabData) selectedTab.getUserData();
+        if (tabData.getType() == TabData.TabType.TRANSACTION) {
+            EventManager.get().post(new TransactionTabSelectedEvent(selectedTab));
+        } else if (tabData.getType() == TabData.TabType.WALLET) {
+            EventManager.get().post(new WalletTabSelectedEvent(selectedTab));
+        }
+    }
+    
+    private void setupWindowCloseHandler() {
         tabs.getScene().getWindow().setOnCloseRequest(event -> {
             EventManager.get().unregister(this);
             EventManager.get().post(new OpenWalletsEvent(tabs.getScene().getWindow(), Collections.emptyList()));
         });
-
-        registerShortcuts();
-
+    }
+    
+    private void setupBitcoinUnit() {
         BitcoinUnit unit = Config.get().getBitcoinUnit();
-        if(unit == null) {
+        if (unit == null) {
             unit = BitcoinUnit.AUTO;
             Config.get().setBitcoinUnit(unit);
         }
@@ -345,84 +358,11 @@ public class AppController implements Initializable {
         selectedUnitToggle.ifPresent(toggle -> bitcoinUnit.selectToggle(toggle));
         Optional<Toggle> otherUnitToggle = bitcoinUnit.getToggles().stream().filter(toggle ->
                 (List.of(BitcoinUnit.AUTO, BitcoinUnit.SATOSHIS).contains(selectedUnit) && BitcoinUnit.BTC.equals(toggle.getUserData()) || (selectedUnit == BitcoinUnit.BTC && BitcoinUnit.SATOSHIS.equals(toggle.getUserData())))).findFirst();
-        otherUnitToggle.ifPresent(toggle -> ((RadioMenuItem)toggle).setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN)));
-
-        UnitFormat format = Config.get().getUnitFormat();
-        if(format == null) {
-            format = UnitFormat.DOT;
-            Config.get().setUnitFormat(format);
-        }
-        final UnitFormat selectedFormat = format;
-        Optional<Toggle> selectedFormatToggle = unitFormat.getToggles().stream().filter(toggle -> selectedFormat.equals(toggle.getUserData())).findFirst();
-        selectedFormatToggle.ifPresent(toggle -> unitFormat.selectToggle(toggle));
-
-        Theme configTheme = Config.get().getTheme();
-        if(configTheme == null) {
-            configTheme = Theme.LIGHT;
-            Config.get().setTheme(Theme.LIGHT);
-        }
-        final Theme selectedTheme = configTheme;
-        Optional<Toggle> selectedThemeToggle = theme.getToggles().stream().filter(toggle -> selectedTheme.equals(toggle.getUserData())).findFirst();
-        selectedThemeToggle.ifPresent(toggle -> theme.selectToggle(toggle));
-        setTheme(null);
-
-        openWalletsInNewWindowsProperty.set(Config.get().isOpenWalletsInNewWindows());
-        openWalletsInNewWindows.selectedProperty().bindBidirectional(openWalletsInNewWindowsProperty);
-        hideEmptyUsedAddressesProperty.set(Config.get().isHideEmptyUsedAddresses());
-        hideEmptyUsedAddresses.selectedProperty().bindBidirectional(hideEmptyUsedAddressesProperty);
-        useHdCameraResolutionProperty.set(Config.get().isHdCapture());
-        useHdCameraResolution.selectedProperty().bindBidirectional(useHdCameraResolutionProperty);
-        showTxHexProperty.set(Config.get().isShowTransactionHex());
-        showTxHex.selectedProperty().bindBidirectional(showTxHexProperty);
-        showLoadingLogProperty.set(Config.get().isShowLoadingLog());
-        showLoadingLog.selectedProperty().bindBidirectional(showLoadingLogProperty);
-        preventSleepProperty.set(Config.get().isPreventSleep());
-        preventSleep.selectedProperty().bindBidirectional(preventSleepProperty);
-
-        List<Network> networks = new ArrayList<>(List.of(Network.MAINNET, Network.TESTNET, Network.SIGNET));
-        networks.remove(Network.get());
-        for(Network network : networks) {
-            MenuItem networkItem = new MenuItem(network.toDisplayString());
-            networkItem.setOnAction(event -> restart(event, network));
-            restart.getItems().add(networkItem);
-        }
-        restart.setVisible(System.getProperty(JPACKAGE_APP_PATH) != null);
-
-        saveTransaction.setDisable(true);
-        showTransaction.visibleProperty().bind(Bindings.and(saveTransaction.visibleProperty(), saveTransaction.disableProperty().not()));
-        showTransaction.disableProperty().bind(saveTransaction.disableProperty());
-        savePSBT.visibleProperty().bind(saveTransaction.visibleProperty().not());
-        savePSBTBinary.disableProperty().bind(saveTransaction.visibleProperty());
-        showPSBT.visibleProperty().bind(saveTransaction.visibleProperty().not());
-        exportWallet.setDisable(true);
-        renameWallet.disableProperty().bind(exportWallet.disableProperty());
-        deleteWallet.disableProperty().bind(exportWallet.disableProperty());
-        closeTab.setDisable(true);
-        lockWallet.setDisable(true);
-        showWalletSummary.disableProperty().bind(exportWallet.disableProperty());
-        searchWallet.disableProperty().bind(exportWallet.disableProperty());
-        refreshWallet.disableProperty().bind(Bindings.or(exportWallet.disableProperty(), Bindings.or(serverToggle.disableProperty(), AppServices.onlineProperty().not())));
-        sendToMany.disableProperty().bind(exportWallet.disableProperty());
-        sweepPrivateKey.disableProperty().bind(Bindings.or(serverToggle.disableProperty(), AppServices.onlineProperty().not()));
-        showPayNym.setDisable(true);
-        findMixingPartner.setDisable(true);
-        AppServices.onlineProperty().addListener((observable, oldValue, newValue) -> {
-            findMixingPartner.setDisable(exportWallet.isDisable() || getSelectedWalletForm() == null || !SorobanServices.canWalletMix(getSelectedWalletForm().getWallet()) || !newValue);
-        });
-
-        configureSwitchServer();
-        setServerType(Config.get().getServerType());
-        serverToggle.setSelected(isConnected());
-        serverToggle.setDisable(!Config.get().hasServer());
-        onlineProperty().bindBidirectional(serverToggle.selectedProperty());
-        onlineProperty().addListener(new WeakChangeListener<>(serverToggleOnlineListener));
-        serverToggle.addEventHandler(MouseEvent.MOUSE_CLICKED, event -> {
-            Config.get().setMode(serverToggle.isSelected() ? Mode.ONLINE : Mode.OFFLINE);
-        });
-
-        openTransactionIdItem.disableProperty().bind(onlineProperty().not());
-        setNetworkLabel();
+        otherUnitToggle.ifPresent(toggle -> ((RadioMenuItem) toggle).setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN)));
     }
+    
+
+    
 
     private void registerShortcuts() {
         org.controlsfx.tools.Platform platform = org.controlsfx.tools.Platform.getCurrent();
@@ -2570,31 +2510,38 @@ public class AppController implements Initializable {
             }
 
             String text = null;
-            if(blockTransactions.size() == 1) {
-                BlockTransaction blockTransaction = blockTransactions.get(0);
-                if(blockTransaction.getHeight() <= 0) {
-                    text = "New mempool transaction: ";
-                } else {
-                    int confirmations = blockTransaction.getConfirmations(getCurrentBlockHeight());
-                    if(confirmations == 1) {
-                        text = "First transaction confirmation: ";
-                    } else if(confirmations <= BlockTransactionHash.BLOCKS_TO_CONFIRM) {
-                        text = "Confirming transaction: ";
-                    } else {
-                        text = "Confirmed transaction: ";
-                    }
-                }
+if (blockTransactions.size() == 1) {
+    BlockTransaction blockTransaction = blockTransactions.get(0);
+    text = getTextForSingleTransaction(blockTransaction, event);
+} else if (blockTransactions.size() > 1) {
+    text = getTextForMultipleTransactions(event);
+}
 
-                text += event.getValueAsText(event.getTotalValue());
-            } else if(blockTransactions.size() > 1) {
-                if(event.getTotalBlockchainValue() > 0 && event.getTotalMempoolValue() > 0) {
-                    text = "New transactions: " + event.getValueAsText(event.getTotalValue()) + " total";
-                } else if(event.getTotalMempoolValue() > 0) {
-                    text = "New mempool transactions: " + event.getValueAsText(event.getTotalMempoolValue()) + " total";
-                } else {
-                    text = "New transactions: " + event.getValueAsText(event.getTotalValue()) + " total";
-                }
-            }
+private String getTextForSingleTransaction(BlockTransaction blockTransaction, Event event) {
+    if (blockTransaction.getHeight() <= 0) {
+        return "New mempool transaction: " + event.getValueAsText(event.getTotalValue());
+    } else {
+        int confirmations = blockTransaction.getConfirmations(getCurrentBlockHeight());
+        if (confirmations == 1) {
+            return "First transaction confirmation: " + event.getValueAsText(event.getTotalValue());
+        } else if (confirmations <= BlockTransactionHash.BLOCKS_TO_CONFIRM) {
+            return "Confirming transaction: " + event.getValueAsText(event.getTotalValue());
+        } else {
+            return "Confirmed transaction: " + event.getValueAsText(event.getTotalValue());
+        }
+    }
+}
+
+private String getTextForMultipleTransactions(Event event) {
+    if (event.getTotalBlockchainValue() > 0 && event.getTotalMempoolValue() > 0) {
+        return "New transactions: " + event.getValueAsText(event.getTotalValue()) + " total";
+    } else if (event.getTotalMempoolValue() > 0) {
+        return "New mempool transactions: " + event.getValueAsText(event.getTotalMempoolValue()) + " total";
+    } else {
+        return "New transactions: " + event.getValueAsText(event.getTotalValue()) + " total";
+    }
+}
+
 
             if(text != null) {
                 Window.getWindows().forEach(window -> {
